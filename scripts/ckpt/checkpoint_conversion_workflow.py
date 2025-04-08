@@ -125,7 +125,6 @@ def convert_checkpoint(
     iterations: List[str],
     save_checkpoints_dir: str,
     opensci_megatron_path: str,
-    megatron_path: str,
     open_sci_hf_path: str,
     convert_logs_dir: str,
     account: str,
@@ -142,7 +141,6 @@ def convert_checkpoint(
         iterations: List of iterations to convert
         save_checkpoints_dir: Directory to save converted checkpoints
         opensci_megatron_path: Path to Megatron-LM-Open-Sci repository
-        megatron_path: Path to Megatron-LM repository
         open_sci_hf_path: Path to Open-Sci-hf repository
         convert_logs_dir: Directory to save conversion logs
         account: Account to use for conversion
@@ -175,7 +173,6 @@ def convert_checkpoint(
         num_attn_heads=model_config["NUM_ATTN_HEADS"],
         ffn_hidden_size=model_config["FFN_HIDDEN_SIZE"],
         max_seq_length=model_config["MAX_POSITION_EMBEDDINGS"],
-        megatron_path=megatron_path,
         open_sci_hf_path=open_sci_hf_path,
         save_checkpoints_dir=save_checkpoints_dir,
         convert_logs_dir=convert_logs_dir,
@@ -238,7 +235,6 @@ def process_all_checkpoints(
     conversion_script_path: str,
     save_checkpoints_dir: str,
     opensci_megatron_path: str,
-    megatron_path: str,
     open_sci_hf_path: str,
     convert_logs_dir: str,
     account: str,
@@ -276,7 +272,6 @@ def process_all_checkpoints(
             conversion_script_path=conversion_script_path,
             save_checkpoints_dir=save_checkpoints_dir,
             opensci_megatron_path=opensci_megatron_path,
-            megatron_path=megatron_path,
             open_sci_hf_path=open_sci_hf_path,
             convert_logs_dir=convert_logs_dir,
             account=account,
@@ -312,11 +307,6 @@ if __name__ == "__main__":
         default="/leonardo/home/userexternal/tcarsten/work/Megatron-LM-Open-Sci",
     )
     parser.add_argument(
-        "--megatron_path",
-        type=str,
-        default="/leonardo/home/userexternal/tcarsten/work/Megatron-LM",
-    )
-    parser.add_argument(
         "--open_sci_hf_path",
         type=str,
         default="/leonardo/home/userexternal/tcarsten/work/Open-Sci-hf",
@@ -349,7 +339,6 @@ if __name__ == "__main__":
         conversion_script_path=args.conversion_script_path,
         save_checkpoints_dir=args.save_checkpoints_dir,
         opensci_megatron_path=args.opensci_megatron_path,
-        megatron_path=args.megatron_path,
         open_sci_hf_path=args.open_sci_hf_path,
         convert_logs_dir=args.convert_logs_dir,
         account=args.account,

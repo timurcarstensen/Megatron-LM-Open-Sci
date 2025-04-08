@@ -19,9 +19,6 @@ def main():
         help="Path to Megatron-LM-Open-Sci",
     )
     parser.add_argument(
-        "--megatron_path", type=str, required=True, help="Path to Megatron-LM"
-    )
-    parser.add_argument(
         "--open_sci_hf_path", type=str, required=True, help="Path to open-sci-hf"
     )
     parser.add_argument(
@@ -61,7 +58,6 @@ def main():
     convert_logs_dir = args.convert_logs_dir
     container_image = args.container_image
     opensci_megatron_path = args.opensci_megatron_path
-    megatron_path = args.megatron_path
     open_sci_hf_path = args.open_sci_hf_path
     train_logs_dir_or_path = args.train_logs_dir_or_path
     save_checkpoints_dir = args.save_checkpoints_dir
@@ -116,7 +112,6 @@ def main():
                     partition=partition,
                     container_image=container_image,
                     opensci_megatron_path=opensci_megatron_path,
-                    megatron_path=megatron_path,
                     open_sci_hf_path=open_sci_hf_path,
                     train_logs_path=train_log,
                     save_checkpoints_dir=save_checkpoints_dir,

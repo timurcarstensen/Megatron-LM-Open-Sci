@@ -24,8 +24,8 @@ export MASTER_ADDR=$(scontrol show hostname $SLURM_JOB_NODELIST | head -n1)
 export MASTER_PORT=$((10000 + ($SLURM_JOBID % 50000)))
 
 MEGATRON_OPEN_SCI_PATH="{opensci_megatron_path}"
-MEGATRON_PATH="{megatron_path}"
-export PYTHONPATH=$MEGATRON_PATH:$PYTHONPATH
+# MEGATRON_PATH="{megatron_path}"
+export PYTHONPATH=$MEGATRON_OPEN_SCI_PATH:$PYTHONPATH
 
 OPEN_SCI_HF_PATH={open_sci_hf_path}
 
@@ -33,7 +33,8 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 export OMP_NUM_THREADS=1
 export TRITON_LIBCUDA_PATH=/usr/local/cuda/lib64/stubs
 
-cd $MEGATRON_PATH
+# cd $MEGATRON_PATH
+cd $MEGATRON_OPEN_SCI_PATH
 
 NUM_NODES=$SLURM_JOB_NUM_NODES
 NUM_GPUS_PER_NODE=4
