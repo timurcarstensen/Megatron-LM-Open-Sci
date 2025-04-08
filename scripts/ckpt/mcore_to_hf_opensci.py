@@ -51,7 +51,10 @@ def clone_state_dict(elem):
 
 def add_args(parser):
     parser.add_argument(
-        '--megatron-path', type=str, default=None, help='Base directory of Megatron repository'
+        "--megatron-path",
+        type=str,
+        default=None,
+        help="Base directory of Megatron repository",
     )
 
     parser.add_argument(
@@ -63,7 +66,10 @@ def add_args(parser):
         ),
     )
     parser.add_argument(
-        "--load_path", type=str, required=True, help="Path to the checkpoint to convert."
+        "--load_path",
+        type=str,
+        required=True,
+        help="Path to the checkpoint to convert.",
     )
     parser.add_argument(
         "--save_path", type=str, required=True, help="Path to the converted checkpoint."
@@ -114,13 +120,13 @@ megatron_to_transformers = {"self_attention.linear_proj": "self_attn.o_proj"}
 
 tensor_parallel_params_mg = [
     # megatron-lm layers to merge across tp ranks
-    'self_attention.linear_proj.weight',
-    'self_attention.linear_qkv.weight',
-    'self_attention.linear_proj.bias',
-    'self_attention.linear_qkv.bias',
+    "self_attention.linear_proj.weight",
+    "self_attention.linear_qkv.weight",
+    "self_attention.linear_proj.bias",
+    "self_attention.linear_qkv.bias",
 ]
 
-column_split_tensor_parallel_params_mg = ['self_attention.linear_proj']
+column_split_tensor_parallel_params_mg = ["self_attention.linear_proj"]
 
 
 def get_checkpoint_sub_dir_name(tp_rank, pp_rank, pp_size):
@@ -140,19 +146,21 @@ def get_megatron_sharded_states(args, tp_size, pp_size, pp_rank):
         pp_size (int): the pipeline parallel size
         pp_rank (int): the pipeline parallel rank
     """
-    tp_state_dicts = [{'model': {}} for i in range(tp_size)]
+    tp_state_dicts = [{"model": {}} for i in range(tp_size)]
     for tp_index, i in enumerate(range(tp_size)):
         sub_dir_name = get_checkpoint_sub_dir_name(i, pp_rank, pp_size)
         print(f"Loading {sub_dir_name}...")
         # Since distrib_optim.pt is unnecessary, explicitly specify model_optim_rng.pt instead.
-        checkpoint_path = os.path.join(args.load_path, sub_dir_name, 'model_optim_rng.pt')
+        checkpoint_path = os.path.join(
+            args.load_path, sub_dir_name, "model_optim_rng.pt"
+        )
         if not os.path.exists(checkpoint_path):
             raise FileNotFoundError(
                 f"Could not find model_optim_rng.pt in {os.path.join(args.load_path, sub_dir_name)}. "
                 f"Available files: {os.listdir(os.path.join(args.load_path, sub_dir_name))}"
             )
-        state_dict = torch.load(checkpoint_path, map_location="cpu")
-        tp_state_dicts[tp_index]['model'].update(state_dict['model'])
+        state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        tp_state_dicts[tp_index]["model"].update(state_dict["model"])
     return tp_state_dicts
 
 
@@ -267,7 +275,9 @@ def convert_checkpoint_from_megatron_to_transformers(args):
         args (argparse.Namespace): the arguments to the script
     """
     # Search in directory above this
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
+    sys.path.append(
+        os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
+    )
     if args.megatron_path is not None:
         sys.path.insert(0, args.megatron_path)
 
@@ -291,7 +301,9 @@ def convert_checkpoint_from_megatron_to_transformers(args):
     state_dirs = os.listdir(state_path)
     for sub_dir in possible_sub_dirs:
         if sub_dir in state_dirs:
-            rank0_checkpoint_path = os.path.join(state_path, sub_dir, 'model_optim_rng.pt')
+            rank0_checkpoint_path = os.path.join(
+                state_path, sub_dir, "model_optim_rng.pt"
+            )
             break
     print(f"Loading Megatron-LM checkpoint arguments from: {rank0_checkpoint_path}")  # type: ignore
     state_dict = torch.load(rank0_checkpoint_path, map_location="cpu")  # type: ignore
@@ -332,11 +344,17 @@ def convert_checkpoint_from_megatron_to_transformers(args):
     config.model_type = args.model_type
     config.num_attention_heads = megatron_args.num_attention_heads
     config.num_hidden_layers = megatron_args.num_layers
-    config.num_key_value_heads = args.num_key_value_heads if args.num_key_value_heads is not None else megatron_args.num_query_groups
+    config.num_key_value_heads = (
+        args.num_key_value_heads
+        if args.num_key_value_heads is not None
+        else megatron_args.num_query_groups
+    )
     config.qk_layernorm = megatron_args.qk_layernorm
     config.rms_norm_eps = megatron_args.norm_epsilon
     config.rope_scaling = (
-        None if megatron_args.use_rope_scaling is False else megatron_args.use_rope_scaling
+        None
+        if megatron_args.use_rope_scaling is False
+        else megatron_args.use_rope_scaling
     )
     config.rope_theta = megatron_args.rotary_base
     config.tie_word_embeddings = not megatron_args.untie_embeddings_and_output_weights
@@ -369,7 +387,9 @@ def convert_checkpoint_from_megatron_to_transformers(args):
     # pdb.set_trace()
     embeddings = tp_state_dicts[0]["model"]["embedding.word_embeddings.weight"]
     for tp_rank in range(tp_size):
-        embeddings = tp_state_dicts[tp_rank]["model"]["embedding.word_embeddings.weight"]
+        embeddings = tp_state_dicts[tp_rank]["model"][
+            "embedding.word_embeddings.weight"
+        ]
         word_embeddings.append(embeddings)
 
     word_embeddings = torch.cat(word_embeddings, dim=0)
@@ -392,70 +412,82 @@ def convert_checkpoint_from_megatron_to_transformers(args):
     for pp_rank in range(pp_size):
         if pp_size > 0:
             print(f"Converting pipeline parallel rank {pp_rank}")
-            tp_state_dicts = get_megatron_sharded_states(args, tp_size, pp_size, pp_rank)
+            tp_state_dicts = get_megatron_sharded_states(
+                args, tp_size, pp_size, pp_rank
+            )
 
         # The transformer.
 
-        path = 'model'
+        path = "model"
 
         # Extract the layers.
         for key, val in get_element_from_dict_by_path(tp_state_dicts[0], path).items():
-            if key.endswith('_extra_state'):
+            if key.endswith("_extra_state"):
                 continue
-            if 'layer_norm_weight' not in key and 'linear_fc' in key:
-                key_list = key.split('.')
+            if "layer_norm_weight" not in key and "linear_fc" in key:
+                key_list = key.split(".")
                 layer_id = int(key_list[2]) + pp_rank * num_layers
 
-                if 'weight' in key:
-                    dim = 1 if 'linear_fc2' in key else 0
+                if "weight" in key:
+                    dim = 1 if "linear_fc2" in key else 0
                     params = torch.cat(
                         [val]
                         + [
-                            get_element_from_dict_by_path(tp_state_dicts[tp_rank], f"{path}")[key]
+                            get_element_from_dict_by_path(
+                                tp_state_dicts[tp_rank], f"{path}"
+                            )[key]
                             for tp_rank in range(1, tp_size)
                         ],
                         dim=dim,
                     ).to(dtype)
 
-                    if 'linear_fc2' in key:
-                        output_state_dict[f'model.layers.{layer_id}.mlp.down_proj.weight'] = params
+                    if "linear_fc2" in key:
+                        output_state_dict[
+                            f"model.layers.{layer_id}.mlp.down_proj.weight"
+                        ] = params
                     else:
                         params_split = [
-                            torch.chunk(i, 2, 0) for i in torch.chunk(params, tp_size, 0)
+                            torch.chunk(i, 2, 0)
+                            for i in torch.chunk(params, tp_size, 0)
                         ]
-                        output_state_dict[f'model.layers.{layer_id}.mlp.gate_proj.weight'] = (
-                            torch.cat([i[0] for i in params_split])
-                        )
-                        output_state_dict[f'model.layers.{layer_id}.mlp.up_proj.weight'] = (
-                            torch.cat([i[1] for i in params_split])
-                        )
-                elif 'bias' in key:
+                        output_state_dict[
+                            f"model.layers.{layer_id}.mlp.gate_proj.weight"
+                        ] = torch.cat([i[0] for i in params_split])
+                        output_state_dict[
+                            f"model.layers.{layer_id}.mlp.up_proj.weight"
+                        ] = torch.cat([i[1] for i in params_split])
+                elif "bias" in key:
                     params = torch.cat(
                         [val]
                         + [
-                            get_element_from_dict_by_path(tp_state_dicts[tp_rank], f"{path}")[key]
+                            get_element_from_dict_by_path(
+                                tp_state_dicts[tp_rank], f"{path}"
+                            )[key]
                             for tp_rank in range(1, tp_size)
                         ],
                         dim=0,  # bias is always combined with dim=0
                     ).to(dtype)
 
-                    if 'linear_fc2' in key:
-                        output_state_dict[f'model.layers.{layer_id}.mlp.down_proj.bias'] = params
+                    if "linear_fc2" in key:
+                        output_state_dict[
+                            f"model.layers.{layer_id}.mlp.down_proj.bias"
+                        ] = params
                     else:
                         params_split = [
-                            torch.chunk(i, 2, 0) for i in torch.chunk(params, tp_size, 0)
+                            torch.chunk(i, 2, 0)
+                            for i in torch.chunk(params, tp_size, 0)
                         ]
-                        output_state_dict[f'model.layers.{layer_id}.mlp.gate_proj.bias'] = (
-                            torch.cat([i[0] for i in params_split])
-                        )
-                        output_state_dict[f'model.layers.{layer_id}.mlp.up_proj.bias'] = torch.cat(
-                            [i[1] for i in params_split]
-                        )
+                        output_state_dict[
+                            f"model.layers.{layer_id}.mlp.gate_proj.bias"
+                        ] = torch.cat([i[0] for i in params_split])
+                        output_state_dict[
+                            f"model.layers.{layer_id}.mlp.up_proj.bias"
+                        ] = torch.cat([i[1] for i in params_split])
                 continue
 
-            new_key = key.replace('decoder.', '')
-            if 'layer_norm_weight' in new_key:
-                new_key += '.weight'
+            new_key = key.replace("decoder.", "")
+            if "layer_norm_weight" in new_key:
+                new_key += ".weight"
             # Match the name.
             m = layer_re.match(new_key)
             # Stop if that's not a layer
@@ -485,21 +517,23 @@ def convert_checkpoint_from_megatron_to_transformers(args):
                 params = torch.cat(
                     [val]
                     + [
-                        get_element_from_dict_by_path(tp_state_dicts[tp_rank], f"{path}")[key]
+                        get_element_from_dict_by_path(
+                            tp_state_dicts[tp_rank], f"{path}"
+                        )[key]
                         for tp_rank in range(1, tp_size)
                     ],
                     dim=dim,
                 ).to(dtype)
 
             if "q_layernorm" in op_name:
-                output_state_dict[layer_name + ".self_attn.q_layernorm." + weight_or_bias] = (
-                    params.clone()
-                )
+                output_state_dict[
+                    layer_name + ".self_attn.q_layernorm." + weight_or_bias
+                ] = params.clone()
                 continue
             elif "k_layernorm" in op_name:
-                output_state_dict[layer_name + ".self_attn.k_layernorm." + weight_or_bias] = (
-                    params.clone()
-                )
+                output_state_dict[
+                    layer_name + ".self_attn.k_layernorm." + weight_or_bias
+                ] = params.clone()
                 continue
             # For layernorm(s), simply store the layer norm.
             elif op_name.endswith("layer_norm_weight") or op_name.endswith("layernorm"):
@@ -509,25 +543,36 @@ def convert_checkpoint_from_megatron_to_transformers(args):
                     ] = params.clone()
                 elif "mlp.linear_fc1" in op_name:
                     output_state_dict[
-                        layer_name + "." + "post_attention_layernorm" + "." + weight_or_bias
+                        layer_name
+                        + "."
+                        + "post_attention_layernorm"
+                        + "."
+                        + weight_or_bias
                     ] = params.clone()
                 continue
 
             # Transpose the QKV matrix.
             elif (
-                op_name == "attention.linear_qkv" or op_name == "self_attention.linear_qkv"
+                op_name == "attention.linear_qkv"
+                or op_name == "self_attention.linear_qkv"
             ) and weight_or_bias == "weight":
-
-                print(f"num_groups: {num_groups}, hidden_size_per_head: {hidden_size_per_head}")
+                print(
+                    f"num_groups: {num_groups}, hidden_size_per_head: {hidden_size_per_head}"
+                )
                 print(f"op_name: {op_name}, weight_or_bias: {weight_or_bias}")
 
                 all_qkvs = [
                     i.reshape(
                         num_groups // args.target_tensor_model_parallel_size,
-                        (heads // num_groups * hidden_size_per_head + 2 * hidden_size_per_head),
+                        (
+                            heads // num_groups * hidden_size_per_head
+                            + 2 * hidden_size_per_head
+                        ),
                         hidden_size,
                     )
-                    for i in torch.chunk(params, args.target_tensor_model_parallel_size, 0)
+                    for i in torch.chunk(
+                        params, args.target_tensor_model_parallel_size, 0
+                    )
                 ]
                 split_size = heads // num_groups * hidden_size_per_head
                 all_qs = torch.cat(
@@ -547,12 +592,19 @@ def convert_checkpoint_from_megatron_to_transformers(args):
                 )
                 out_kv = torch.chunk(out_kv, 2)
 
-                output_state_dict[layer_name + f".self_attn.q_proj.weight"] = out_q.clone()
-                output_state_dict[layer_name + f".self_attn.k_proj.weight"] = out_kv[0].clone()
-                output_state_dict[layer_name + f".self_attn.v_proj.weight"] = out_kv[1].clone()
+                output_state_dict[layer_name + f".self_attn.q_proj.weight"] = (
+                    out_q.clone()
+                )
+                output_state_dict[layer_name + f".self_attn.k_proj.weight"] = out_kv[
+                    0
+                ].clone()
+                output_state_dict[layer_name + f".self_attn.v_proj.weight"] = out_kv[
+                    1
+                ].clone()
 
             elif (
-                op_name == "attention.linear_qkv" or op_name == "self_attention.linear_qkv"
+                op_name == "attention.linear_qkv"
+                or op_name == "self_attention.linear_qkv"
             ) and weight_or_bias == "bias":
                 print("num_groups", num_groups)
                 print("hidden_size_per_head", hidden_size_per_head)
@@ -562,18 +614,31 @@ def convert_checkpoint_from_megatron_to_transformers(args):
                 all_qkv_biases = [
                     i.reshape(
                         num_groups // args.target_tensor_model_parallel_size,
-                        (heads // num_groups * hidden_size_per_head + 2 * hidden_size_per_head),
+                        (
+                            heads // num_groups * hidden_size_per_head
+                            + 2 * hidden_size_per_head
+                        ),
                     )
-                    for i in torch.chunk(params, args.target_tensor_model_parallel_size, 0)
+                    for i in torch.chunk(
+                        params, args.target_tensor_model_parallel_size, 0
+                    )
                 ]
 
                 split_size = heads // num_groups * hidden_size_per_head
-                all_q_biases = torch.cat([i[:, :split_size].reshape(-1) for i in all_qkv_biases])
-                all_kv_biases = torch.cat([i[:, split_size:].reshape(-1) for i in all_qkv_biases])
+                all_q_biases = torch.cat(
+                    [i[:, :split_size].reshape(-1) for i in all_qkv_biases]
+                )
+                all_kv_biases = torch.cat(
+                    [i[:, split_size:].reshape(-1) for i in all_qkv_biases]
+                )
 
                 checkpoint_version = 3.0
                 out_q_bias = megatron_to_transformers_fix_query_key_value_ordering(
-                    all_q_biases.unsqueeze(-1), checkpoint_version, 1, heads, hidden_size_per_head
+                    all_q_biases.unsqueeze(-1),
+                    checkpoint_version,
+                    1,
+                    heads,
+                    hidden_size_per_head,
                 ).squeeze(-1)
 
                 out_kv_bias = megatron_to_transformers_fix_query_key_value_ordering(
@@ -585,21 +650,33 @@ def convert_checkpoint_from_megatron_to_transformers(args):
                 ).squeeze(-1)
                 out_kv_bias = torch.chunk(out_kv_bias, 2)
 
-                output_state_dict[layer_name + f".self_attn.q_proj.bias"] = out_q_bias.clone()
-                output_state_dict[layer_name + f".self_attn.k_proj.bias"] = out_kv_bias[0].clone()
-                output_state_dict[layer_name + f".self_attn.v_proj.bias"] = out_kv_bias[1].clone()
+                output_state_dict[layer_name + f".self_attn.q_proj.bias"] = (
+                    out_q_bias.clone()
+                )
+                output_state_dict[layer_name + f".self_attn.k_proj.bias"] = out_kv_bias[
+                    0
+                ].clone()
+                output_state_dict[layer_name + f".self_attn.v_proj.bias"] = out_kv_bias[
+                    1
+                ].clone()
 
             # Transpose the weights.
             elif weight_or_bias == "weight":
                 out_name = megatron_to_transformers[op_name]
-                output_state_dict[layer_name + '.' + out_name + '.' + "weight"] = params.clone()
+                output_state_dict[layer_name + "." + out_name + "." + "weight"] = (
+                    params.clone()
+                )
             # Handle biases
             elif weight_or_bias == "bias":
                 out_name = megatron_to_transformers[op_name]
-                output_state_dict[layer_name + '.' + out_name + '.' + "bias"] = params.clone()
+                output_state_dict[layer_name + "." + out_name + "." + "bias"] = (
+                    params.clone()
+                )
 
     if config.num_hidden_layers != (layer_idx + 1):
-        raise ValueError(f"Expected {config.num_hidden_layers} layers but found {layer_idx + 1}")
+        raise ValueError(
+            f"Expected {config.num_hidden_layers} layers but found {layer_idx + 1}"
+        )
 
     # The final layernorm.
     print("Converting final layernorm")
@@ -619,7 +696,9 @@ def convert_checkpoint_from_megatron_to_transformers(args):
         # If we're not tying weights.
         params = torch.cat(
             [
-                get_element_from_dict_by_path(tp_state_dicts[i]['model'], 'output_layer.weight')
+                get_element_from_dict_by_path(
+                    tp_state_dicts[i]["model"], "output_layer.weight"
+                )
                 for i in range(tp_size)
             ]
         )
@@ -635,7 +714,9 @@ def convert_checkpoint_from_megatron_to_transformers(args):
     print("Saving checkpoint...")
     config.save_pretrained(args.save_path)
     save_torch_state_dict(
-        state_dict=output_state_dict, save_directory=args.save_path, safe_serialization=True
+        state_dict=output_state_dict,
+        save_directory=args.save_path,
+        safe_serialization=True,
     )
     print(f"Model weights saved in {args.save_path}")
 
@@ -643,25 +724,25 @@ def convert_checkpoint_from_megatron_to_transformers(args):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--num_key_value_heads',
+        "--num_key_value_heads",
         type=int,
         default=None,
     )
     parser.add_argument(
-        '--architecture',
+        "--architecture",
         type=str,
-        default='OpenSciForCausalLM',
+        default="OpenSciForCausalLM",
     )
     parser.add_argument(
-        '--model_type',
+        "--model_type",
         type=str,
-        default='opensci',
+        default="opensci",
     )
 
     parser.add_argument(
-        '--tokenizer_name',
+        "--tokenizer_name",
         type=str,
-        default='EleutherAI/gpt-neox-20b',
+        default="EleutherAI/gpt-neox-20b",
     )
     parser = add_args(parser)
     args = parser.parse_args()

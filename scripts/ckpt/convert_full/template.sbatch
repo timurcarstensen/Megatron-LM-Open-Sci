@@ -6,8 +6,9 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --time=00:30:00
-#SBATCH --qos=boost_qos_dbg 
+#SBATCH --qos=boost_qos_lprod 
 #SBATCH --output={convert_logs_dir}/%x_%j.out
+#SBATCH --error={convert_logs_dir}/%x_%j.err
 #SBATCH --job-name=convert_full
 
 
@@ -54,26 +55,39 @@ TRAIN_LOGS_PATH={train_logs_path}
 MODEL_NAME=$(basename $TRAIN_LOGS_PATH | sed 's/.out//')
 
 CHECKPOINTS_DIR="{save_checkpoints_dir}"
-
 DIST_CKPT_PATH="${CHECKPOINTS_DIR}/${MODEL_NAME}"
-mkdir -p ${DIST_CKPT_PATH}
-TORCH_CHECKPOINTS_DIR=${CHECKPOINTS_DIR}/torch
-TORCH_CKPT_PATH="${TORCH_CHECKPOINTS_DIR}/${MODEL_NAME}"
+TORCH_CKPT_PATH="${CHECKPOINTS_DIR}/${MODEL_NAME}"
+SAVE_CHECKPOINT_PATH="${CHECKPOINTS_DIR}/${MODEL_NAME}/hf"
 
-SAVE_CHECKPOINT_PATH="${CHECKPOINTS_DIR}/hf/${MODEL_NAME}"
-mkdir -p ${SAVE_CHECKPOINT_PATH}
+ITERATION_TO_CONVERT="{iteration_to_convert}"
+if [ ! -z "$ITERATION_TO_CONVERT" ]; then
+    LATEST_ITER=$ITERATION_TO_CONVERT
+else
+    LATEST_ITER=$(cat ${TORCH_CKPT_PATH}/torch/latest_checkpointed_iteration.txt)
+fi
 
+echo "LATEST_ITER: $LATEST_ITER"
+# format the latest iteration to 7 digits
+# LATEST_ITER=$(printf "%07d" $LATEST_ITER)
+LOAD_CHECKPOINT_PATH="${TORCH_CKPT_PATH}/iter_${LATEST_ITER}"
+
+# DIST_CKPT_PATH="${DIST_CKPT_PATH}/iter_${LATEST_ITER}"
+# TORCH_CKPT_PATH="${TORCH_CKPT_PATH}/iter_${LATEST_ITER}"
+SAVE_CHECKPOINT_PATH="${SAVE_CHECKPOINT_PATH}/iter_${LATEST_ITER}"
+
+# mkdir -p ${DIST_CKPT_PATH}
 mkdir -p ${TORCH_CKPT_PATH}
+mkdir -p ${SAVE_CHECKPOINT_PATH}
 
 CONVERT_DIST_SCRIPT="tools/checkpoint/convert.py"
 DIST2TORCH_SCRIPT="${MEGATRON_OPEN_SCI_PATH}/scripts/ckpt/convert_full/dist2torch.py"
 
-
-PRETRAIN_CMD=$(python $DIST2TORCH_SCRIPT \
+PRETRAIN_CMD=$(/leonardo_work/EUHPC_E03_068/tcarsten/Megatron-LM-Open-Sci/.venv/bin/python $DIST2TORCH_SCRIPT \
     --logs-path $TRAIN_LOGS_PATH \
     --torch-chpt-path $TORCH_CKPT_PATH \
     --dist-chpt-path $DIST_CKPT_PATH \
-    )
+    --train-iters $ITERATION_TO_CONVERT \
+)
 
 
 DISTRIBUTED_ARGS=(
@@ -94,7 +108,11 @@ LAUNCHER="${APPTAINER_ARGS} \
     --tee 3 \
     "
 
-echo $PRETRAIN_CMD
+# Execute pre-run command inside the container if specified
+if [ ! -z "{pre_run_cmd}" ]; then
+    ${APPTAINER_ARGS} bash -c "{pre_run_cmd}"
+fi
+
 $LAUNCHER $PRETRAIN_CMD
 
 
@@ -102,19 +120,14 @@ $LAUNCHER $PRETRAIN_CMD
 # Convert the model to HF
 # CONDA_ENV="$WORK/marianna/envs/vllm"
 # MINICONDA_PATH="$WORK/marianna/miniconda/miniforge"
-# source ${MINICONDA_PATH}/bin/activate ${CONDA_ENV}
+source /leonardo_work/EUHPC_E03_068/tcarsten/Megatron-LM-Open-Sci/.venv/bin/activate || exit 1
 
 cd $MEGATRON_OPEN_SCI_PATH
 
-LATEST_ITER=$(cat ${TORCH_CKPT_PATH}/torch/latest_checkpointed_iteration.txt)
-# format the latest iteration to 7 digits
-LATEST_ITER=$(printf "%07d" $LATEST_ITER)
-LOAD_CHECKPOINT_PATH="${TORCH_CKPT_PATH}/torch/iter_${LATEST_ITER}"
+intermediate_size={ffn_hidden_size}
+max_position_embeddings={max_seq_length}
+NUM_KEY_VALUE_HEADS={num_attn_heads} # need to pass it separately as it is stored as 1 in the checkpoint
 
-
-intermediate_size=8192
-max_position_embeddings=4096
-NUM_KEY_VALUE_HEADS=32 # need to pass it separately as it is stored as 1 in the checkpoint
 
 
 cat <<EOF > ${SAVE_CHECKPOINT_PATH}/config.json
@@ -165,11 +178,12 @@ cp -r $OPEN_SCI_HF_PATH/sample/special_tokens_map.json "${SAVE_CHECKPOINT_PATH}"
 cp -r $OPEN_SCI_HF_PATH/sample/vocab.json "${SAVE_CHECKPOINT_PATH}"
 
 
-mkdir -p ${SAVE_CHECKPOINT_PATH}
+echo "LOAD_CHECKPOINT_PATH: $LOAD_CHECKPOINT_PATH"
+echo "SAVE_CHECKPOINT_PATH: $SAVE_CHECKPOINT_PATH"
 
 $APPTAINER_ARGS \
   python -u scripts/ckpt/mcore_to_hf_opensci.py \
-    --load_path "${LOAD_CHECKPOINT_PATH}" \
+    --load_path "${TORCH_CKPT_PATH}/torch/iter_${LATEST_ITER}" \
     --save_path "${SAVE_CHECKPOINT_PATH}" \
     --source_model "${SAVE_CHECKPOINT_PATH}" \
     --target_tensor_model_parallel_size ${TARGET_TP_SIZE} \
