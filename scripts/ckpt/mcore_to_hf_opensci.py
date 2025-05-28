@@ -13,19 +13,15 @@
 # limitations under the License.
 
 import argparse
-import json
 import os
 import re
 import sys
-import types
-from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 
 import numpy as np
 import torch
 from huggingface_hub import save_torch_state_dict
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
-from transformers.modeling_utils import WEIGHTS_INDEX_NAME, WEIGHTS_NAME
+from transformers import AutoConfig, AutoTokenizer
 
 
 @torch.inference_mode()
@@ -592,13 +588,13 @@ def convert_checkpoint_from_megatron_to_transformers(args):
                 )
                 out_kv = torch.chunk(out_kv, 2)
 
-                output_state_dict[layer_name + f".self_attn.q_proj.weight"] = (
+                output_state_dict[layer_name + ".self_attn.q_proj.weight"] = (
                     out_q.clone()
                 )
-                output_state_dict[layer_name + f".self_attn.k_proj.weight"] = out_kv[
+                output_state_dict[layer_name + ".self_attn.k_proj.weight"] = out_kv[
                     0
                 ].clone()
-                output_state_dict[layer_name + f".self_attn.v_proj.weight"] = out_kv[
+                output_state_dict[layer_name + ".self_attn.v_proj.weight"] = out_kv[
                     1
                 ].clone()
 
@@ -650,13 +646,13 @@ def convert_checkpoint_from_megatron_to_transformers(args):
                 ).squeeze(-1)
                 out_kv_bias = torch.chunk(out_kv_bias, 2)
 
-                output_state_dict[layer_name + f".self_attn.q_proj.bias"] = (
+                output_state_dict[layer_name + ".self_attn.q_proj.bias"] = (
                     out_q_bias.clone()
                 )
-                output_state_dict[layer_name + f".self_attn.k_proj.bias"] = out_kv_bias[
+                output_state_dict[layer_name + ".self_attn.k_proj.bias"] = out_kv_bias[
                     0
                 ].clone()
-                output_state_dict[layer_name + f".self_attn.v_proj.bias"] = out_kv_bias[
+                output_state_dict[layer_name + ".self_attn.v_proj.bias"] = out_kv_bias[
                     1
                 ].clone()
 

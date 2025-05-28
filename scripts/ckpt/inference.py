@@ -1,23 +1,29 @@
 import argparse
-import random
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 def setup_argparse():
-    parser = argparse.ArgumentParser(description='Language Model Inference Script')
+    parser = argparse.ArgumentParser(description="Language Model Inference Script")
     parser.add_argument(
-        '--model_path', type=str, required=True, help='Path to the model checkpoint'
+        "--model_path", type=str, required=True, help="Path to the model checkpoint"
     )
     parser.add_argument(
-        '--num_generations', type=int, default=3, help='Number of generations per prompt'
+        "--num_generations",
+        type=int,
+        default=3,
+        help="Number of generations per prompt",
     )
     parser.add_argument(
-        '--max_length', type=int, default=100, help='Maximum length of generated text'
+        "--max_length", type=int, default=100, help="Maximum length of generated text"
     )
-    parser.add_argument('--temperature', type=float, default=0.7, help='Temperature for sampling')
-    parser.add_argument('--top_p', type=float, default=0.9, help='Top-p sampling parameter')
+    parser.add_argument(
+        "--temperature", type=float, default=0.7, help="Temperature for sampling"
+    )
+    parser.add_argument(
+        "--top_p", type=float, default=0.9, help="Top-p sampling parameter"
+    )
     return parser
 
 
@@ -30,7 +36,9 @@ def load_model(model_path):
     return tokenizer, model
 
 
-def generate_text(model, tokenizer, prompt, num_generations, max_length, temperature, top_p):
+def generate_text(
+    model, tokenizer, prompt, num_generations, max_length, temperature, top_p
+):
     inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
 
     results = []
