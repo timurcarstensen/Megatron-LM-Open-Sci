@@ -47,22 +47,50 @@ def extract_checkpoints_from_logs(
                 for i, line in enumerate(lines):
                     if "[after training is done]" in line and i + 1 < len(lines):
                         # Look for checkpoint path in the next line
-                        next_line = lines[i + 1]
-                        if "/leonardo_work/EUHPC_E03_068/" in next_line:
-                            checkpoint_path = next_line.strip()
-                            checkpoint_path = (
-                                checkpoint_path.split(" to ")[-1].strip().split(" ")[0]
-                            )
-                            if os.path.exists(checkpoint_path):
-                                checkpoint_paths_and_logs.append(
-                                    (Path(checkpoint_path), slurm_log_file)
+                        next_lines = lines[i + 1 :]
+                        for next_line in next_lines:
+                            if "/leonardo_work/EUHPC_E03_068/" in next_line:
+                                checkpoint_path = next_line.strip()
+                                checkpoint_path = (
+                                    checkpoint_path.split(" to ")[-1]
+                                    .strip()
+                                    .split(" ")[0]
                                 )
-                            else:
-                                logging.info(
-                                    f"Checkpoint path {checkpoint_path} does not exist"
-                                )
+                                if os.path.exists(checkpoint_path):
+                                    checkpoint_paths_and_logs.append(
+                                        (Path(checkpoint_path), slurm_log_file)
+                                    )
+                                    break
+                                else:
+                                    logging.info(
+                                        f"Checkpoint path {checkpoint_path} does not exist"
+                                    )
+                                    break
 
     return checkpoint_paths_and_logs
+
+
+def extract_model_size(log_path: Path) -> str:
+    with open(log_path, "r") as f:
+        log_file = f.read()
+
+    if "Total number of parameters in billions" not in log_file:
+        raise ValueError("billions not found")
+
+    with open(log_path, "r") as f:
+        log_file_lines = f.readlines()
+
+    for line in log_file_lines:
+        if "Total number of parameters in billions" in line:
+            num = line.strip().split("billions: ")[-1]
+            if "1.3" in num:
+                return "1.3"
+            elif "0.4" in num:
+                return "0.4"
+            elif "1.7" in num:
+                return "1.7"
+            elif "0.13" in num:
+                return "0.13"
 
 
 def get_model_config_from_command_line(log_path: Path) -> Optional[Dict[str, int]]:
@@ -75,6 +103,14 @@ def get_model_config_from_command_line(log_path: Path) -> Optional[Dict[str, int
     Returns:
         dict: Model configuration parameters or None if not found
     """
+    # defaults = {"1.3b": {"FFN_HIDDEN_SIZE": 5440}, "1.7b": {"FFN_HIDDEN_SIZE": 8192}}
+    defaults = {
+        "0.13": {"FFN_HIDDEN_SIZE": 2256},
+        "0.4": {"FFN_HIDDEN_SIZE": 3840},
+        "1.3": {"FFN_HIDDEN_SIZE": 5440},
+        "1.7": {"FFN_HIDDEN_SIZE": 8192},
+    }
+
     try:
         with open(log_path, "r") as f:
             content = f.read()
@@ -105,13 +141,23 @@ def get_model_config_from_command_line(log_path: Path) -> Optional[Dict[str, int
             if param_match:
                 config[config_key] = int(param_match.group(1))
 
+        model_size = extract_model_size(log_path=log_path)
+        logging.info(f"model size is {model_size}")
+
+        try:
+            for v in param_map.values():
+                if v not in config:
+                    config[v] = defaults[model_size][v]
+                    print(f"setting {v} as :{defaults[model_size][v]}")
+        except Exception as e:
+            logging.error(e)
+
         if not config:
             logging.info(
                 f"No model configuration parameters found in command line: {log_path}"
             )
             return None
 
-        # logging.info(f"Extracted config from log: {config}")
         return config
 
     except Exception as e:
@@ -165,33 +211,36 @@ def convert_checkpoint(
     with open(conversion_script_path, "r") as f:
         conversion_script = f.read()
 
-    conversion_script = conversion_script.format(
-        train_logs=log_path,
-        iters_to_convert=" ".join(iterations),
-        opensci_megatron_path=opensci_megatron_path,
-        num_layers=model_config["NUM_LAYERS"],
-        num_attn_heads=model_config["NUM_ATTN_HEADS"],
-        ffn_hidden_size=model_config["FFN_HIDDEN_SIZE"],
-        max_seq_length=model_config["MAX_POSITION_EMBEDDINGS"],
-        open_sci_hf_path=open_sci_hf_path,
-        save_checkpoints_dir=save_checkpoints_dir,
-        convert_logs_dir=convert_logs_dir,
-        account=account,
-        partition=partition,
-        container_image=container_image,
-    )
+    try:
+        conversion_script = conversion_script.format(
+            train_logs=log_path,
+            iters_to_convert=" ".join(iterations),
+            opensci_megatron_path=opensci_megatron_path,
+            num_layers=model_config["NUM_LAYERS"],
+            num_attn_heads=model_config["NUM_ATTN_HEADS"],
+            ffn_hidden_size=model_config["FFN_HIDDEN_SIZE"],
+            max_seq_length=model_config["MAX_POSITION_EMBEDDINGS"],
+            open_sci_hf_path=open_sci_hf_path,
+            save_checkpoints_dir=save_checkpoints_dir,
+            convert_logs_dir=convert_logs_dir,
+            account=account,
+            partition=partition,
+            container_image=container_image,
+        )
 
-    temp_script_path = Path("/tmp/convert_script.sh")
-    with open(temp_script_path, "w") as f:
-        f.write(conversion_script)
+        temp_script_path = Path("/tmp/convert_script.sh")
+        with open(temp_script_path, "w") as f:
+            f.write(conversion_script)
 
-    # Make the script executable
-    os.chmod(temp_script_path, 0o755)
+        # Make the script executable
+        os.chmod(temp_script_path, 0o755)
 
-    # Run the bash script
-    # logging.info(f"Running script: {conversion_script}")
-    logging.info("Running script")
-    subprocess.run(["bash", temp_script_path], capture_output=True, text=True)
+        # Run the bash script
+        logging.info("Running script")
+        subprocess.run(["bash", temp_script_path])
+    except Exception as e:
+        logging.error(f"Error running script: {e}")
+        logging.info(f"Skipping checkpoint: {log_path}")
 
 
 def get_iterations_from_checkpoint(checkpoint_path: Path) -> List[str]:
@@ -212,7 +261,9 @@ def get_iterations_from_checkpoint(checkpoint_path: Path) -> List[str]:
         logging.warning(
             f"Warning: Checkpoint path {checkpoint_path} does not exist or is not a directory"
         )
-        return iterations
+        raise ValueError(
+            f"Checkpoint path {checkpoint_path} does not exist or is not a directory"
+        )
 
     # Look for iteration directories (format: iter_XXXXXXX)
     for item in checkpoint_path.iterdir():
@@ -226,7 +277,6 @@ def get_iterations_from_checkpoint(checkpoint_path: Path) -> List[str]:
 
     if not iterations:
         logging.info(f"No iterations found in {checkpoint_path}")
-
     return iterations
 
 
@@ -260,7 +310,7 @@ def process_all_checkpoints(
         # If iterations not provided, determine them from the checkpoint directory
         checkpoint_iterations = get_iterations_from_checkpoint(checkpoint_path)
         # If still no iterations found, use a fallback method
-        if not checkpoint_iterations:
+        if not len(checkpoint_iterations) > 0:
             logging.info(
                 f"No iterations found in {checkpoint_path}, using default range"
             )
@@ -294,7 +344,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--conversion_script_path",
         type=str,
-        default="/leonardo/home/userexternal/tcarsten/work/Megatron-LM-Open-Sci/scripts/ckpt/convert_full/convert_full.sh",
+        default="/leonardo/home/userexternal/tcarsten/work/timur_megatron_open_sci/scripts/ckpt/convert_full/convert_full.sh",
     )
     parser.add_argument(
         "--save_checkpoints_dir",
@@ -304,7 +354,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--opensci_megatron_path",
         type=str,
-        default="/leonardo/home/userexternal/tcarsten/work/Megatron-LM-Open-Sci",
+        default="/leonardo/home/userexternal/tcarsten/work/timur_megatron_open_sci",
     )
     parser.add_argument(
         "--open_sci_hf_path",

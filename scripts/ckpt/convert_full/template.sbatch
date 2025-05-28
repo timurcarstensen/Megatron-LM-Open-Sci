@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --time=00:30:00
-#SBATCH --qos=boost_qos_lprod 
+#SBATCH --qos=boost_qos_dbg 
 #SBATCH --output={convert_logs_dir}/%x_%j.out
 #SBATCH --error={convert_logs_dir}/%x_%j.err
 #SBATCH --job-name=convert_full
@@ -24,7 +24,6 @@ export MASTER_ADDR=$(scontrol show hostname $SLURM_JOB_NODELIST | head -n1)
 export MASTER_PORT=$((10000 + ($SLURM_JOBID % 50000)))
 
 MEGATRON_OPEN_SCI_PATH="{opensci_megatron_path}"
-# MEGATRON_PATH="{megatron_path}"
 export PYTHONPATH=$MEGATRON_OPEN_SCI_PATH:$PYTHONPATH
 
 OPEN_SCI_HF_PATH={open_sci_hf_path}
@@ -88,6 +87,7 @@ PRETRAIN_CMD=$(/leonardo_work/EUHPC_E03_068/tcarsten/Megatron-LM-Open-Sci/.venv/
     --torch-chpt-path $TORCH_CKPT_PATH \
     --dist-chpt-path $DIST_CKPT_PATH \
     --train-iters $ITERATION_TO_CONVERT \
+    --ffn-hidden-size {ffn_hidden_size}
 )
 
 

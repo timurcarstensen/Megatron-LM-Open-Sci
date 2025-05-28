@@ -6,7 +6,6 @@ CONVERT_LOGS_DIR={convert_logs_dir}
 mkdir -p $CONVERT_LOGS_DIR
 
 OPENSCI_MEGATRON_PATH={opensci_megatron_path}
-# MEGATRON_PATH={megatron_path}
 OPEN_SCI_HF_PATH={open_sci_hf_path}
 SAVE_CHECKPOINTS_DIR={save_checkpoints_dir}
 
