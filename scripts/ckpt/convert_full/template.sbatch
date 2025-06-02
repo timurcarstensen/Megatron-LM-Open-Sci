@@ -68,11 +68,8 @@ fi
 
 echo "LATEST_ITER: $LATEST_ITER"
 # format the latest iteration to 7 digits
-# LATEST_ITER=$(printf "%07d" $LATEST_ITER)
 LOAD_CHECKPOINT_PATH="${TORCH_CKPT_PATH}/iter_${LATEST_ITER}"
 
-# DIST_CKPT_PATH="${DIST_CKPT_PATH}/iter_${LATEST_ITER}"
-# TORCH_CKPT_PATH="${TORCH_CKPT_PATH}/iter_${LATEST_ITER}"
 SAVE_CHECKPOINT_PATH="${SAVE_CHECKPOINT_PATH}/iter_${LATEST_ITER}"
 
 # mkdir -p ${DIST_CKPT_PATH}
@@ -119,8 +116,6 @@ $LAUNCHER $PRETRAIN_CMD
 
 
 # Convert the model to HF
-# CONDA_ENV="$WORK/marianna/envs/vllm"
-# MINICONDA_PATH="$WORK/marianna/miniconda/miniforge"
 source /leonardo_work/EUHPC_E03_068/tcarsten/Megatron-LM-Open-Sci/.venv/bin/activate || exit 1
 
 cd $MEGATRON_OPEN_SCI_PATH
