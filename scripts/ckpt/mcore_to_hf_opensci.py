@@ -17,6 +17,7 @@ import os
 import re
 import sys
 from collections.abc import Mapping, Sequence
+import logging
 
 import numpy as np
 import torch
@@ -145,7 +146,7 @@ def get_megatron_sharded_states(args, tp_size, pp_size, pp_rank):
     tp_state_dicts = [{"model": {}} for i in range(tp_size)]
     for tp_index, i in enumerate(range(tp_size)):
         sub_dir_name = get_checkpoint_sub_dir_name(i, pp_rank, pp_size)
-        print(f"Loading {sub_dir_name}...")
+        logging.info(f"Loading {sub_dir_name}...")
         # Since distrib_optim.pt is unnecessary, explicitly specify model_optim_rng.pt instead.
         checkpoint_path = os.path.join(
             args.load_path, sub_dir_name, "model_optim_rng.pt"
@@ -244,13 +245,13 @@ def recursive_print(name, val, spaces=0):
     # Print and recurse (if needed).
     if isinstance(val, dict):
         if msg is not None:
-            print(msg)
+            logging.info(msg)
         for k in val.keys():
             recursive_print(k, val[k], spaces + 2)
     elif isinstance(val, torch.Tensor):
-        print(msg, ":", val.size())
+        logging.info(msg, ":", val.size())
     else:
-        print(msg, ":", val)
+        logging.info(msg, ":", val)
 
 
 def get_element_from_dict_by_path(d, path):
@@ -279,12 +280,12 @@ def convert_checkpoint_from_megatron_to_transformers(args):
 
     # Load Megatron-LM checkpoint arguments from the state dict
     possible_state_paths: list[str] = [os.path.join(args.load_path)]
-    print(f"DEBUG: possible_state_paths: {possible_state_paths}")
+    logging.info(f"DEBUG: possible_state_paths: {possible_state_paths}")
     state_path = None
     for p in possible_state_paths:
         if os.path.exists(p):
             state_path = p
-            print(f"Loading Megatron-LM checkpoint arguments from: {state_path}")
+            logging.info(f"Loading Megatron-LM checkpoint arguments from: {state_path}")
             break
     assert state_path is not None, f"Cannot find state path in {possible_state_paths}"
     possible_sub_dirs = [
@@ -301,7 +302,9 @@ def convert_checkpoint_from_megatron_to_transformers(args):
                 state_path, sub_dir, "model_optim_rng.pt"
             )
             break
-    print(f"Loading Megatron-LM checkpoint arguments from: {rank0_checkpoint_path}")  # type: ignore
+    logging.info(
+        f"Loading Megatron-LM checkpoint arguments from: {rank0_checkpoint_path}"
+    )  # type: ignore
     state_dict = torch.load(rank0_checkpoint_path, map_location="cpu")  # type: ignore
     megatron_args = state_dict.get("args", None)
     if megatron_args is None:
@@ -365,13 +368,13 @@ def convert_checkpoint_from_megatron_to_transformers(args):
     layer_re = re.compile("layers\.(\d+)\.([a-z0-9_.]+)\.([a-z]+)")
 
     # Convert.
-    print("Converting")
+    logging.info("Converting")
 
     # Embeddings
-    print("Converting embeddings")
+    logging.info("Converting embeddings")
     tp_state_dicts = get_megatron_sharded_states(args, tp_size, pp_size, 0)
 
-    print("tp_state_dicts", tp_state_dicts[0]["model"].keys())
+    logging.info("tp_state_dicts", tp_state_dicts[0]["model"].keys())
 
     # import pdb
     # pdb.set_trace()
@@ -395,7 +398,7 @@ def convert_checkpoint_from_megatron_to_transformers(args):
     config.vocab_size = word_embeddings.shape[0]
 
     # Transformer Layers
-    print("Converting transformer layers")
+    logging.info("Converting transformer layers")
     # The number of heads.
     heads = config.num_attention_heads
     # The hidden_size per head.
@@ -407,7 +410,7 @@ def convert_checkpoint_from_megatron_to_transformers(args):
 
     for pp_rank in range(pp_size):
         if pp_size > 0:
-            print(f"Converting pipeline parallel rank {pp_rank}")
+            logging.info(f"Converting pipeline parallel rank {pp_rank}")
             tp_state_dicts = get_megatron_sharded_states(
                 args, tp_size, pp_size, pp_rank
             )
@@ -500,7 +503,7 @@ def convert_checkpoint_from_megatron_to_transformers(args):
             # The name of the layer.
             layer_name = f"model.layers.{layer_idx}"
 
-            print(layer_name, op_name, weight_or_bias)
+            logging.info(layer_name, op_name, weight_or_bias)
 
             if op_name + "." + weight_or_bias not in tensor_parallel_params_mg:
                 params = val.to(dtype)
@@ -552,10 +555,10 @@ def convert_checkpoint_from_megatron_to_transformers(args):
                 op_name == "attention.linear_qkv"
                 or op_name == "self_attention.linear_qkv"
             ) and weight_or_bias == "weight":
-                print(
+                logging.info(
                     f"num_groups: {num_groups}, hidden_size_per_head: {hidden_size_per_head}"
                 )
-                print(f"op_name: {op_name}, weight_or_bias: {weight_or_bias}")
+                logging.info(f"op_name: {op_name}, weight_or_bias: {weight_or_bias}")
 
                 all_qkvs = [
                     i.reshape(
@@ -602,10 +605,10 @@ def convert_checkpoint_from_megatron_to_transformers(args):
                 op_name == "attention.linear_qkv"
                 or op_name == "self_attention.linear_qkv"
             ) and weight_or_bias == "bias":
-                print("num_groups", num_groups)
-                print("hidden_size_per_head", hidden_size_per_head)
-                print("op_name", op_name)
-                print("weight_or_bias", weight_or_bias)
+                logging.info("num_groups", num_groups)
+                logging.info("hidden_size_per_head", hidden_size_per_head)
+                logging.info("op_name", op_name)
+                logging.info("weight_or_bias", weight_or_bias)
 
                 all_qkv_biases = [
                     i.reshape(
@@ -675,19 +678,20 @@ def convert_checkpoint_from_megatron_to_transformers(args):
         )
 
     # The final layernorm.
-    print("Converting final layernorm")
+    logging.info("Converting final layernorm")
     params = get_element_from_dict_by_path(tp_state_dicts[0], str(path))
     try:
         output_state_dict["model.norm.weight"] = (
             params["decoder.final_layernorm.weight"].to(dtype).clone()
         )
-    except:
+    except Exception as e:
+        logging.debug(f"Error converting final layernorm: {e}")
         output_state_dict["model.norm.weight"] = (
             params["decoder.final_norm.weight"].to(dtype).clone()
         )
 
     # For LM head, transformers' wants the matrix to weight embeddings.
-    print("Converting LM head")
+    logging.info("Converting LM head")
     if not config.tie_word_embeddings:
         # If we're not tying weights.
         params = torch.cat(
@@ -701,20 +705,20 @@ def convert_checkpoint_from_megatron_to_transformers(args):
         output_state_dict["lm_head.weight"] = params.to(dtype).clone()
 
     # It should be done!
-    print("Conversion from Megatron-LM to Transformers is done!")
+    logging.info("Conversion from Megatron-LM to Transformers is done!")
 
     # Print the structure of converted state dict.
     if args.print_checkpoint_structure:
         recursive_print(None, output_state_dict)
 
-    print("Saving checkpoint...")
+    logging.info("Saving checkpoint...")
     config.save_pretrained(args.save_path)
     save_torch_state_dict(
         state_dict=output_state_dict,
         save_directory=args.save_path,
         safe_serialization=True,
     )
-    print(f"Model weights saved in {args.save_path}")
+    logging.info(f"Model weights saved in {args.save_path}")
 
 
 def main():
@@ -749,4 +753,8 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
     main()
