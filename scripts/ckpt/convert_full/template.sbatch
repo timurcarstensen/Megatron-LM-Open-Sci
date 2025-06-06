@@ -5,11 +5,13 @@
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
-#SBATCH --time=00:30:00
-#SBATCH --qos=boost_qos_dbg 
+#SBATCH --time=00:10:00
+#SBATCH --qos=boost_qos_lprod
 #SBATCH --output={convert_logs_dir}/%x_%j.out
 #SBATCH --error={convert_logs_dir}/%x_%j.err
 #SBATCH --job-name=convert_full
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-user=timurcarstensen@gmail.com
 
 
 IMAGE={container_image}
@@ -55,9 +57,14 @@ TRAIN_LOGS_PATH={train_logs_path}
 MODEL_NAME=$(basename $TRAIN_LOGS_PATH | sed 's/.out//')
 
 CHECKPOINTS_DIR="{save_checkpoints_dir}"
-DIST_CKPT_PATH="${CHECKPOINTS_DIR}/${MODEL_NAME}"
+DIST_CKPT_PATH="{dist_ckpt_path}"
 TORCH_CKPT_PATH="${CHECKPOINTS_DIR}/${MODEL_NAME}"
 SAVE_CHECKPOINT_PATH="${CHECKPOINTS_DIR}/${MODEL_NAME}/hf"
+
+echo CHECKPOINTS_DIR=$CHECKPOINTS_DIR
+echo DIST_CKPT_PATH=$DIST_CKPT_PATH
+echo TORCH_CKPT_PATH=$TORCH_CKPT_PATH
+echo SAVE_CHECKPOINT_PATH=$SAVE_CHECKPOINT_PATH
 
 ITERATION_TO_CONVERT="{iteration_to_convert}"
 if [ ! -z "$ITERATION_TO_CONVERT" ]; then
@@ -68,18 +75,15 @@ fi
 
 echo "LATEST_ITER: $LATEST_ITER"
 # format the latest iteration to 7 digits
-LOAD_CHECKPOINT_PATH="${TORCH_CKPT_PATH}/iter_${LATEST_ITER}"
-
 SAVE_CHECKPOINT_PATH="${SAVE_CHECKPOINT_PATH}/iter_${LATEST_ITER}"
 
 # mkdir -p ${DIST_CKPT_PATH}
 mkdir -p ${TORCH_CKPT_PATH}
 mkdir -p ${SAVE_CHECKPOINT_PATH}
 
-CONVERT_DIST_SCRIPT="tools/checkpoint/convert.py"
 DIST2TORCH_SCRIPT="${MEGATRON_OPEN_SCI_PATH}/scripts/ckpt/convert_full/dist2torch.py"
 
-PRETRAIN_CMD=$(/leonardo_work/EUHPC_E03_068/tcarsten/Megatron-LM-Open-Sci/.venv/bin/python $DIST2TORCH_SCRIPT \
+PRETRAIN_CMD=$(/leonardo_work/EUHPC_E03_068/tcarsten/timur_megatron_open_sci/.venv/bin/python $DIST2TORCH_SCRIPT \
     --logs-path $TRAIN_LOGS_PATH \
     --torch-chpt-path $TORCH_CKPT_PATH \
     --dist-chpt-path $DIST_CKPT_PATH \
@@ -116,7 +120,7 @@ $LAUNCHER $PRETRAIN_CMD
 
 
 # Convert the model to HF
-source /leonardo_work/EUHPC_E03_068/tcarsten/Megatron-LM-Open-Sci/.venv/bin/activate || exit 1
+source /leonardo_work/EUHPC_E03_068/tcarsten/timur_megatron_open_sci/.venv/bin/activate || exit 1
 
 cd $MEGATRON_OPEN_SCI_PATH
 
@@ -173,9 +177,6 @@ cp -r $OPEN_SCI_HF_PATH/sample/tokenizer* "${SAVE_CHECKPOINT_PATH}"
 cp -r $OPEN_SCI_HF_PATH/sample/special_tokens_map.json "${SAVE_CHECKPOINT_PATH}"
 cp -r $OPEN_SCI_HF_PATH/sample/vocab.json "${SAVE_CHECKPOINT_PATH}"
 
-
-echo "LOAD_CHECKPOINT_PATH: $LOAD_CHECKPOINT_PATH"
-echo "SAVE_CHECKPOINT_PATH: $SAVE_CHECKPOINT_PATH"
 
 $APPTAINER_ARGS \
   python -u scripts/ckpt/mcore_to_hf_opensci.py \

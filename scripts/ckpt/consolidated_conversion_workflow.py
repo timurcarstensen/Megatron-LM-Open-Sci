@@ -17,14 +17,9 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 # Import functions from the original checkpoint_conversion_workflow.py
-from checkpoint_conversion_workflow import (
-    extract_checkpoints_from_logs,
-    get_model_config_from_command_line,
-    get_iterations_from_checkpoint,
-)
 
 # Configure logging
 logging.basicConfig(
@@ -34,10 +29,213 @@ logging.basicConfig(
 )
 
 
+def get_iterations_from_checkpoint(checkpoint_path: Path) -> List[str]:
+    """
+    Determine iterations by scanning the checkpoint directory structure.
+    Looks for directories in the format 'iter_0002000', etc.
+
+    Args:
+        checkpoint_path: Path to the checkpoint directory
+
+    Returns:
+        List of iteration strings (e.g., ['0002000', '0004000', ...])
+    """
+    iterations = []
+    ckpt_iter_paths = []
+
+    # Check if checkpoint_path exists and is a directory
+    if not checkpoint_path.exists() or not checkpoint_path.is_dir():
+        logging.warning(
+            f"Warning: Checkpoint path {checkpoint_path} does not exist or is not a directory"
+        )
+        raise ValueError(
+            f"Checkpoint path {checkpoint_path} does not exist or is not a directory"
+        )
+
+    # Look for iteration directories (format: iter_XXXXXXX)
+    for item in checkpoint_path.iterdir():
+        if item.is_dir() and item.name.startswith("iter_"):
+            iter_num = item.name.split("_")[1]
+            if iter_num.isdigit():
+                iterations.append(iter_num)
+                ckpt_iter_paths.append(item)
+
+    for path in ckpt_iter_paths:
+        if os.path.islink(path):
+            iter_num = path.name.split("_")[1]
+            for item in Path(os.path.realpath(path)).parent.iterdir():
+                if (
+                    item.is_dir()
+                    and item.name.startswith("iter_")
+                    and item.name.split("_")[1].isdigit()
+                    and int(item.name.split("_")[1]) < int(iter_num)
+                ):
+                    logging.debug(
+                        f"Adding {item} to ckpt_iter_paths for {int(iter_num)} > {int(item.name.split('_')[1])}"
+                    )
+                    ckpt_iter_paths.append(Path(os.path.realpath(item)))
+                    iterations.append(item.name.split("_")[1])
+        else:
+            pass
+            # logging.warning(f"Warning: {path} is not a lirectory")
+
+    # Sort iterations numerically
+    iterations.sort(key=int)
+
+    if not iterations:
+        logging.info(f"No iterations found in {checkpoint_path}")
+    return iterations, ckpt_iter_paths
+
+
+def extract_checkpoints_from_logs(
+    slurm_log_dir: Union[str, Path],
+) -> List[Tuple[Path, Path]]:
+    """
+    Extract checkpoint paths from SLURM log files.
+    Looks for files that have completed training and extracts the checkpoint path.
+
+    Args:
+        slurm_log_dir: Directory containing SLURM log files
+
+    Returns:
+        List of tuples containing (checkpoint_path, log_file_path)
+    """
+    slurm_log_dir = Path(slurm_log_dir)
+    checkpoint_paths_and_logs = []
+
+    for slurm_log_file in slurm_log_dir.glob("open-sci-ref*.out"):
+        with open(slurm_log_file, "r") as f:
+            content = f.read()
+            if "[after training is done]" in content:
+                # Extract checkpoint path from the line after [after training is done]
+                lines = content.split("\n")
+                for i, line in enumerate(lines):
+                    if "[after training is done]" in line and i + 1 < len(lines):
+                        # Look for checkpoint path in the next line
+                        next_lines = lines[i + 1 :]
+                        for next_line in next_lines:
+                            if "/leonardo_work/EUHPC_E03_068/" in next_line:
+                                checkpoint_path = next_line.strip()
+                                checkpoint_path = (
+                                    checkpoint_path.split(" to ")[-1]
+                                    .strip()
+                                    .split(" ")[0]
+                                )
+                                if os.path.exists(checkpoint_path):
+                                    checkpoint_paths_and_logs.append(
+                                        (Path(checkpoint_path), slurm_log_file)
+                                    )
+                                    break
+                                else:
+                                    logging.info(
+                                        f"Checkpoint path {checkpoint_path} does not exist"
+                                    )
+                                    break
+
+    return checkpoint_paths_and_logs
+
+
+def extract_model_size(log_path: Path) -> str:
+    with open(log_path, "r") as f:
+        log_file = f.read()
+
+    if "Total number of parameters in billions" not in log_file:
+        raise ValueError("billions not found")
+
+    with open(log_path, "r") as f:
+        log_file_lines = f.readlines()
+
+    for line in log_file_lines:
+        if "Total number of parameters in billions" in line:
+            num = line.strip().split("billions: ")[-1]
+            if "1.3" in num:
+                return "1.3"
+            elif "0.4" in num:
+                return "0.4"
+            elif "1.7" in num:
+                return "1.7"
+            elif "0.13" in num:
+                return "0.13"
+
+
+def get_model_config_from_command_line(log_path: Path) -> Optional[Dict[str, int]]:
+    """
+    Extract model configuration by parsing the pretrain_gpt.py command line in the log file.
+
+    Args:
+        log_path: Path to the log file
+
+    Returns:
+        dict: Model configuration parameters or None if not found
+    """
+    # defaults = {"1.3b": {"FFN_HIDDEN_SIZE": 5440}, "1.7b": {"FFN_HIDDEN_SIZE": 8192}}
+    defaults = {
+        "0.13": {"FFN_HIDDEN_SIZE": 2256},
+        "0.4": {"FFN_HIDDEN_SIZE": 3840},
+        "1.3": {"FFN_HIDDEN_SIZE": 5440},
+        "1.7": {"FFN_HIDDEN_SIZE": 8192},
+    }
+
+    try:
+        with open(log_path, "r") as f:
+            content = f.read()
+
+        # Find the pretrain_gpt.py command line
+        match = re.search(r"pretrain_gpt\.py\s+(.+?)(?:\n|$)", content)
+        if not match:
+            logging.info(f"No pretrain_gpt.py command found in {log_path}")
+            return None
+
+        command_line = match.group(1)
+
+        # Extract relevant parameters
+        config = {}
+
+        # Map of parameter names to their config keys
+        param_map = {
+            "--num-layers": "NUM_LAYERS",
+            "--hidden-size": "HIDDEN_SIZE",
+            "--ffn-hidden-size": "FFN_HIDDEN_SIZE",
+            "--num-attention-heads": "NUM_ATTN_HEADS",
+            "--seq-length": "SEQ_LENGTH",
+            "--max-position-embeddings": "MAX_POSITION_EMBEDDINGS",
+        }
+
+        for param, config_key in param_map.items():
+            param_match = re.search(f"{param}\\s+(\\d+)", command_line)
+            if param_match:
+                config[config_key] = int(param_match.group(1))
+
+        model_size = extract_model_size(log_path=log_path)
+        logging.debug(f"model size is {model_size}")
+
+        try:
+            for v in param_map.values():
+                if v not in config:
+                    config[v] = defaults[model_size][v]
+                    logging.debug(f"setting {v} as :{defaults[model_size][v]}")
+        except Exception as e:
+            logging.error(e)
+
+        if not config:
+            logging.debug(
+                f"No model configuration parameters found in command line: {log_path}"
+            )
+            return None
+
+        return config
+
+    except Exception as e:
+        logging.error(f"Error parsing command line from log file {log_path}: {e}")
+        return None
+
+
 def convert_checkpoint_consolidated(
     log_path: Path,
     iterations: List[str],
+    ckpt_iter_paths: List[Path],
     save_checkpoints_dir: str,
+    # checkpoint_path: Path,
     opensci_megatron_path: str,
     open_sci_hf_path: str,
     convert_logs_dir: str,
@@ -54,6 +252,7 @@ def convert_checkpoint_consolidated(
         log_path: Path to the log file
         iterations: List of iterations to convert
         save_checkpoints_dir: Directory to save converted checkpoints
+        checkpoint_path: Path to the checkpoint directory
         opensci_megatron_path: Path to Megatron-LM-Open-Sci repository
         open_sci_hf_path: Path to Open-Sci-hf repository
         convert_logs_dir: Directory to save conversion logs
@@ -64,12 +263,8 @@ def convert_checkpoint_consolidated(
     """
     model_config = get_model_config_from_command_line(log_path)
 
-    import pdb
-
-    pdb.set_trace()
-
     if not model_config:
-        logging.info(
+        logging.debug(
             f"Skipping {log_path.name}, could not determine model configuration"
         )
         return
@@ -77,7 +272,7 @@ def convert_checkpoint_consolidated(
     # Check if already converted
     log_base_name = log_path.name.split(".out")[0]
     if os.path.exists(f"{save_checkpoints_dir}/{log_base_name}"):
-        # logging.info(f"Skipping {log_base_name}, checkpoint already converted")
+        logging.debug(f"Skipping {log_base_name}, checkpoint already converted")
         return
 
     # Create necessary directories
@@ -103,7 +298,7 @@ def convert_checkpoint_consolidated(
             ).replace("\$", "$")
 
         # Process each iteration
-        for iteration in iterations:
+        for iteration, path in zip(iterations, ckpt_iter_paths):
             logging.info(f"Converting iteration {iteration}")
             sbatch_script = sbatch_template.format(
                 account=account,
@@ -112,6 +307,7 @@ def convert_checkpoint_consolidated(
                 opensci_megatron_path=opensci_megatron_path,
                 open_sci_hf_path=open_sci_hf_path,
                 train_logs_path=str(log_path),
+                dist_ckpt_path=str(path.parent),
                 save_checkpoints_dir=save_checkpoints_dir,
                 convert_logs_dir=convert_logs_dir,
                 pre_run_cmd="",  # No pre-run command by default
@@ -130,8 +326,10 @@ def convert_checkpoint_consolidated(
             with open(sbatch_script_path, "w") as f:
                 f.write(sbatch_script)
 
+            with open("testing.sbatch", "w") as f:
+                f.write(sbatch_script)
+
             subprocess.run(["sbatch", sbatch_script_path])
-            logging.info(f"Submitted {sbatch_script_path}")
             logging.info(f"Submitted {sbatch_script_path}")
 
     except Exception as e:
@@ -168,7 +366,9 @@ def process_all_checkpoints_consolidated(
     # Process each checkpoint
     for checkpoint_path, log_path in checkpoint_paths_and_logs:
         # Determine iterations from the checkpoint directory
-        checkpoint_iterations = get_iterations_from_checkpoint(checkpoint_path)
+        checkpoint_iterations, ckpt_iter_paths = get_iterations_from_checkpoint(
+            checkpoint_path
+        )
 
         # If no iterations found, skip this checkpoint
         if not len(checkpoint_iterations) > 0:
@@ -178,6 +378,7 @@ def process_all_checkpoints_consolidated(
         convert_checkpoint_consolidated(
             log_path=log_path,
             iterations=checkpoint_iterations,
+            ckpt_iter_paths=ckpt_iter_paths,
             save_checkpoints_dir=save_checkpoints_dir,
             opensci_megatron_path=opensci_megatron_path,
             open_sci_hf_path=open_sci_hf_path,
@@ -228,7 +429,7 @@ def main():
     parser.add_argument(
         "--account",
         type=str,
-        default="EUHPC_E03_068",
+        default="CMPNS_E03_068",
         help="Account to use for conversion",
     )
     parser.add_argument(

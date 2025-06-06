@@ -15,7 +15,7 @@ def main():
     args = parser.parse_args()
     logs_path = args.logs_path
     torch_chpt_path = args.torch_chpt_path
-    # dist_chpt_path = args.dist_chpt_path
+    dist_chpt_path = args.dist_chpt_path
     tensorboard_dir = args.tensorboard_dir
     data_cache_dir = args.data_cache_path
     train_iters = args.train_iters
@@ -39,6 +39,8 @@ def main():
             )
 
     pretrain_cmd_dict.pop("--tensorboard-dir")
+    pretrain_cmd_dict.pop("--load")
+    pretrain_cmd_dict["--load"] = dist_chpt_path
     pretrain_cmd_dict["--tensorboard-dir"] = tensorboard_dir
     pretrain_cmd_dict["--data-cache-path"] = data_cache_dir
     pretrain_cmd_dict["--ckpt-convert-format"] = "torch"
