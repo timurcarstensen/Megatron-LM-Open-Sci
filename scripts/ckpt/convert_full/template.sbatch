@@ -189,5 +189,4 @@ $APPTAINER_ARGS \
     --world_size ${WORLD_SIZE} \
     --convert_checkpoint_from_megatron_to_transformers \
     --num_key_value_heads ${NUM_KEY_VALUE_HEADS} \
-    --print-checkpoint-structure
 

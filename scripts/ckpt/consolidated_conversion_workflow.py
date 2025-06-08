@@ -1,27 +1,12 @@
-#!/usr/bin/env python3
-"""
-Consolidated Checkpoint Converter Script
-
-This script consolidates the functionality of:
-- checkpoint_conversion_workflow.py
-- convert_full.sh
-- converter.py
-
-It extracts and processes checkpoint paths from SLURM log files,
-identifies completed training runs, and submits batch jobs to convert the checkpoints.
-"""
-
 import argparse
 import logging
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
-# Import functions from the original checkpoint_conversion_workflow.py
-
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -29,20 +14,15 @@ logging.basicConfig(
 )
 
 
-def get_iterations_from_checkpoint(checkpoint_path: Path) -> List[str]:
+def get_iterations_from_checkpoint(
+    checkpoint_path: Path,
+) -> Tuple[List[str], List[Path]]:
     """
     Determine iterations by scanning the checkpoint directory structure.
     Looks for directories in the format 'iter_0002000', etc.
-
-    Args:
-        checkpoint_path: Path to the checkpoint directory
-
-    Returns:
-        List of iteration strings (e.g., ['0002000', '0004000', ...])
     """
     iterations = []
     ckpt_iter_paths = []
-
     # Check if checkpoint_path exists and is a directory
     if not checkpoint_path.exists() or not checkpoint_path.is_dir():
         logging.warning(
@@ -73,16 +53,16 @@ def get_iterations_from_checkpoint(checkpoint_path: Path) -> List[str]:
                     logging.debug(
                         f"Adding {item} to ckpt_iter_paths for {int(iter_num)} > {int(item.name.split('_')[1])}"
                     )
-                    ckpt_iter_paths.append(Path(os.path.realpath(item)))
+                    ckpt_iter_paths.append(item)
                     iterations.append(item.name.split("_")[1])
-        else:
-            pass
-            # logging.warning(f"Warning: {path} is not a lirectory")
 
-    # Sort iterations numerically
-    iterations.sort(key=int)
+    # Sort iterations numerically and sort ckpt_iter_paths accordingly
+    sorted_pairs = sorted(zip(iterations, ckpt_iter_paths), key=lambda x: int(x[0]))
+    iterations, ckpt_iter_paths = zip(*sorted_pairs) if sorted_pairs else ([], [])
+    iterations = list(iterations)
+    ckpt_iter_paths = list(ckpt_iter_paths)
 
-    if not iterations:
+    if not iterations and not ckpt_iter_paths:
         logging.info(f"No iterations found in {checkpoint_path}")
     return iterations, ckpt_iter_paths
 
@@ -230,6 +210,47 @@ def get_model_config_from_command_line(log_path: Path) -> Optional[Dict[str, int
         return None
 
 
+def get_converted_iterations(save_checkpoints_dir: str, model_name: str) -> List[str]:
+    """
+    Get the list of iterations that have already been converted for a given model.
+    Checks for the existence of model.safetensors in the hf directory to ensure
+    conversion was successful.
+
+    Args:
+        save_checkpoints_dir: Directory where converted checkpoints are saved
+        model_name: Name of the model (log base name)
+
+    Returns:
+        List of iteration strings that have already been successfully converted
+    """
+    converted_iterations = []
+    model_dir = Path(save_checkpoints_dir) / model_name
+
+    if not model_dir.exists():
+        return converted_iterations
+
+    # Check hf directory for successfully converted iterations
+    hf_dir = model_dir / "hf"
+    if hf_dir.exists():
+        for item in hf_dir.iterdir():
+            if item.is_dir() and item.name.startswith("iter_"):
+                iter_num = item.name.split("_")[1]
+                if iter_num.isdigit():
+                    # Check if model.safetensors exists to verify successful conversion
+                    safetensors_file = item / "model.safetensors"
+                    if safetensors_file.exists():
+                        converted_iterations.append(iter_num)
+                        logging.debug(
+                            f"Found successfully converted iteration {iter_num} for {model_name}"
+                        )
+                    else:
+                        logging.info(
+                            f"Iteration {iter_num} for {model_name} exists but model.safetensors missing - conversion likely failed"
+                        )
+
+    return sorted(converted_iterations, key=int)
+
+
 def convert_checkpoint_consolidated(
     log_path: Path,
     iterations: List[str],
@@ -269,10 +290,28 @@ def convert_checkpoint_consolidated(
         )
         return
 
-    # Check if already converted
+    # Get the model name from the log file
     log_base_name = log_path.name.split(".out")[0]
-    if os.path.exists(f"{save_checkpoints_dir}/{log_base_name}"):
-        logging.debug(f"Skipping {log_base_name}, checkpoint already converted")
+
+    # Get already converted iterations for this model
+    converted_iterations = get_converted_iterations(save_checkpoints_dir, log_base_name)
+
+    # Filter out iterations that have already been converted
+    remaining_iterations = []
+    remaining_ckpt_iter_paths = []
+
+    for iteration, path in zip(iterations, ckpt_iter_paths):
+        if iteration not in converted_iterations:
+            remaining_iterations.append(iteration)
+            remaining_ckpt_iter_paths.append(path)
+        else:
+            logging.info(
+                f"Iteration {iteration} for {log_base_name} already converted, skipping"
+            )
+
+    # If no iterations need to be converted, return early
+    if not remaining_iterations:
+        logging.info(f"All iterations for {log_base_name} already converted, skipping")
         return
 
     # Create necessary directories
@@ -297,9 +336,9 @@ def convert_checkpoint_consolidated(
                 r"\$\{(.+?)\}", r"\${{\1}}", sbatch_template
             ).replace("\$", "$")
 
-        # Process each iteration
-        for iteration, path in zip(iterations, ckpt_iter_paths):
-            logging.info(f"Converting iteration {iteration}")
+        # Process each remaining iteration
+        for iteration, path in zip(remaining_iterations, remaining_ckpt_iter_paths):
+            logging.info(f"Converting iteration {iteration} for {log_base_name}")
             sbatch_script = sbatch_template.format(
                 account=account,
                 partition=partition,
@@ -320,17 +359,18 @@ def convert_checkpoint_consolidated(
 
             sbatch_script = sbatch_script.replace("<cat_eof_data>", cat_eof_data)
 
-            sbatch_script_path = os.path.join(
-                convert_logs_dir, f"convert_{log_path.name}_{iteration}.sbatch"
-            )
-            with open(sbatch_script_path, "w") as f:
+            # Create a temporary file for the sbatch script
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".sbatch", delete=False
+            ) as f:
                 f.write(sbatch_script)
-
-            with open("testing.sbatch", "w") as f:
-                f.write(sbatch_script)
+                sbatch_script_path = f.name
 
             subprocess.run(["sbatch", sbatch_script_path])
-            logging.info(f"Submitted {sbatch_script_path}")
+            logging.info(f"Submitted {sbatch_script_path} for iteration {iteration}")
+
+            # Clean up the temporary file
+            os.unlink(sbatch_script_path)
 
     except Exception as e:
         logging.error(f"Error converting checkpoint: {e}")

@@ -249,9 +249,9 @@ def recursive_print(name, val, spaces=0):
         for k in val.keys():
             recursive_print(k, val[k], spaces + 2)
     elif isinstance(val, torch.Tensor):
-        logging.info(msg, ":", val.size())
+        logging.info(f"{msg}: {val.size()}")
     else:
-        logging.info(msg, ":", val)
+        logging.info(f"{msg}: {val}")
 
 
 def get_element_from_dict_by_path(d, path):
@@ -503,7 +503,7 @@ def convert_checkpoint_from_megatron_to_transformers(args):
             # The name of the layer.
             layer_name = f"model.layers.{layer_idx}"
 
-            logging.info(layer_name, op_name, weight_or_bias)
+            # logging.info(layer_name, op_name, weight_or_bias)
 
             if op_name + "." + weight_or_bias not in tensor_parallel_params_mg:
                 params = val.to(dtype)

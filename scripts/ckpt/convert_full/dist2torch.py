@@ -40,7 +40,9 @@ def main():
 
     pretrain_cmd_dict.pop("--tensorboard-dir")
     pretrain_cmd_dict.pop("--load")
+    pretrain_cmd_dict.pop("--save")
     pretrain_cmd_dict["--load"] = dist_chpt_path
+    pretrain_cmd_dict["--save"] = dist_chpt_path
     pretrain_cmd_dict["--tensorboard-dir"] = tensorboard_dir
     pretrain_cmd_dict["--data-cache-path"] = data_cache_dir
     pretrain_cmd_dict["--ckpt-convert-format"] = "torch"
