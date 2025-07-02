@@ -10,8 +10,6 @@
 #SBATCH --output={convert_logs_dir}/%x_%j.out
 #SBATCH --error={convert_logs_dir}/%x_%j.err
 #SBATCH --job-name=convert_full
-#SBATCH --mail-type=FAIL
-#SBATCH --mail-user=timurcarstensen@gmail.com
 
 
 IMAGE={container_image}
