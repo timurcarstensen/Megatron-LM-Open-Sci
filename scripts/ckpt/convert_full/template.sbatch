@@ -81,7 +81,7 @@ mkdir -p ${SAVE_CHECKPOINT_PATH}
 
 DIST2TORCH_SCRIPT="${MEGATRON_OPEN_SCI_PATH}/scripts/ckpt/convert_full/dist2torch.py"
 
-PRETRAIN_CMD=$(/leonardo_work/EUHPC_E03_068/tcarsten/timur_megatron_open_sci/.venv/bin/python $DIST2TORCH_SCRIPT \
+PRETRAIN_CMD=$(<path to your python env> $DIST2TORCH_SCRIPT \
     --logs-path $TRAIN_LOGS_PATH \
     --torch-chpt-path $TORCH_CKPT_PATH \
     --dist-chpt-path $DIST_CKPT_PATH \
@@ -118,7 +118,7 @@ $LAUNCHER $PRETRAIN_CMD
 
 
 # Convert the model to HF
-source /leonardo_work/EUHPC_E03_068/tcarsten/timur_megatron_open_sci/.venv/bin/activate || exit 1
+source <path to your venv>/.venv/bin/activate || exit 1
 
 cd $MEGATRON_OPEN_SCI_PATH
 

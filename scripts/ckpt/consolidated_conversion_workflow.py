@@ -459,31 +459,32 @@ def main():
     parser.add_argument(
         "--slurm_log_dir",
         type=str,
-        default="/leonardo_work/EUHPC_E03_068/najroldi/pretrain/slurm_output/completed",
+        required=True,
         help="Directory containing SLURM log files",
     )
     parser.add_argument(
         "--save_checkpoints_dir",
         type=str,
-        default="/leonardo/home/userexternal/tcarsten/work/converted_checkpoints",
+        required=True,
         help="Directory to save converted checkpoints",
     )
+    # TODO: can be removed since it points at the repo this script is contained in
     parser.add_argument(
         "--opensci_megatron_path",
         type=str,
-        default="/leonardo/home/userexternal/tcarsten/work/timur_megatron_open_sci",
+        required=True,
         help="Path to Megatron-LM-Open-Sci repository",
     )
     parser.add_argument(
         "--open_sci_hf_path",
         type=str,
-        default="/leonardo/home/userexternal/tcarsten/work/Open-Sci-hf",
+        required=True,
         help="Path to Open-Sci-hf repository",
     )
     parser.add_argument(
         "--convert_logs_dir",
         type=str,
-        default="/leonardo/home/userexternal/tcarsten/work/slurm_logs",
+        required=True,
         help="Directory to save conversion logs",
     )
     parser.add_argument(
