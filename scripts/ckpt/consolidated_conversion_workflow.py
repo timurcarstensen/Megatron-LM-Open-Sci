@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -83,7 +83,7 @@ def extract_checkpoints_from_logs(
     slurm_log_dir = Path(slurm_log_dir)
     checkpoint_paths_and_logs = []
 
-    for slurm_log_file in slurm_log_dir.glob("open-sci-ref*.out"):
+    for slurm_log_file in slurm_log_dir.glob("*.out"):
         with open(slurm_log_file, "r") as f:
             content = f.read()
             if "[after training is done]" in content:
@@ -140,7 +140,7 @@ def extract_model_size(log_path: Path) -> str:
 
 def get_model_config_from_command_line(log_path: Path) -> Optional[Dict[str, int]]:
     """
-    Extract model configuration by parsing the pretrain_gpt.py command line in the log file.
+    Extract model configuration by parsing the arguments block in the log file.
 
     Args:
         log_path: Path to the log file
@@ -148,7 +148,6 @@ def get_model_config_from_command_line(log_path: Path) -> Optional[Dict[str, int
     Returns:
         dict: Model configuration parameters or None if not found
     """
-    # defaults = {"1.3b": {"FFN_HIDDEN_SIZE": 5440}, "1.7b": {"FFN_HIDDEN_SIZE": 8192}}
     defaults = {
         "0.13": {"FFN_HIDDEN_SIZE": 2256},
         "0.4": {"FFN_HIDDEN_SIZE": 3840},
@@ -158,33 +157,49 @@ def get_model_config_from_command_line(log_path: Path) -> Optional[Dict[str, int
 
     try:
         with open(log_path, "r") as f:
-            content = f.read()
+            lines = f.readlines()
 
-        # Find the pretrain_gpt.py command line
-        match = re.search(r"pretrain_gpt\.py\s+(.+?)(?:\n|$)", content)
-        if not match:
-            logging.info(f"No pretrain_gpt.py command found in {log_path}")
+        in_args_block = False
+        args_lines = []
+        for line in lines:
+            if " arguments " in line and "------------------------" in line:
+                in_args_block = True
+                continue
+            if " end of arguments " in line and "---------------------" in line:
+                break
+            if in_args_block:
+                args_lines.append(line)
+
+        if not args_lines:
+            logging.info(f"No arguments block found in {log_path}")
             return None
 
-        command_line = match.group(1)
-
-        # Extract relevant parameters
         config = {}
 
-        # Map of parameter names to their config keys
         param_map = {
-            "--num-layers": "NUM_LAYERS",
-            "--hidden-size": "HIDDEN_SIZE",
-            "--ffn-hidden-size": "FFN_HIDDEN_SIZE",
-            "--num-attention-heads": "NUM_ATTN_HEADS",
-            "--seq-length": "SEQ_LENGTH",
-            "--max-position-embeddings": "MAX_POSITION_EMBEDDINGS",
+            "num_layers": "NUM_LAYERS",
+            "hidden_size": "HIDDEN_SIZE",
+            "ffn_hidden_size": "FFN_HIDDEN_SIZE",
+            "num_attention_heads": "NUM_ATTN_HEADS",
+            "seq_length": "SEQ_LENGTH",
+            "max_position_embeddings": "MAX_POSITION_EMBEDDINGS",
         }
 
-        for param, config_key in param_map.items():
-            param_match = re.search(f"{param}\\s+(\\d+)", command_line)
-            if param_match:
-                config[config_key] = int(param_match.group(1))
+        for line in args_lines:
+            # e.g. [lrdn1299:0]:  hidden_size ..................................... 512
+            line_content = line.split("]:", 1)[-1].strip()
+            for param, config_key in param_map.items():
+                if line_content.startswith(param):
+                    match = re.match(rf"{param}\s*\.+\s*(\S+)", line_content)
+                    if match:
+                        val_str = match.group(1).strip()
+                        try:
+                            config[config_key] = int(val_str)
+                        except ValueError:
+                            logging.warning(
+                                f"Could not parse integer value for {param}: {val_str}"
+                            )
+                        break
 
         model_size = extract_model_size(log_path=log_path)
         logging.debug(f"model size is {model_size}")
@@ -192,21 +207,26 @@ def get_model_config_from_command_line(log_path: Path) -> Optional[Dict[str, int
         try:
             for v in param_map.values():
                 if v not in config:
-                    config[v] = defaults[model_size][v]
-                    logging.debug(f"setting {v} as :{defaults[model_size][v]}")
+                    if (
+                        model_size
+                        and model_size in defaults
+                        and v in defaults.get(model_size, {})
+                    ):
+                        config[v] = defaults[model_size][v]
+                        logging.debug(f"setting {v} as :{defaults[model_size][v]}")
         except Exception as e:
             logging.error(e)
 
         if not config:
             logging.debug(
-                f"No model configuration parameters found in command line: {log_path}"
+                f"No model configuration parameters found in arguments block: {log_path}"
             )
             return None
 
         return config
 
     except Exception as e:
-        logging.error(f"Error parsing command line from log file {log_path}: {e}")
+        logging.error(f"Error parsing arguments block from log file {log_path}: {e}")
         return None
 
 
@@ -439,7 +459,7 @@ def main():
     parser.add_argument(
         "--slurm_log_dir",
         type=str,
-        default="/leonardo_work/EUHPC_E03_068/jjitsev0/megatron_lm_reference/slurm_output/",
+        default="/leonardo_work/EUHPC_E03_068/najroldi/pretrain/slurm_output/completed",
         help="Directory containing SLURM log files",
     )
     parser.add_argument(

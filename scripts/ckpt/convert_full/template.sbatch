@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --time=00:10:00
-#SBATCH --qos=boost_qos_lprod
+#SBATCH --qos=boost_qos_dbg
 #SBATCH --output={convert_logs_dir}/%x_%j.out
 #SBATCH --error={convert_logs_dir}/%x_%j.err
 #SBATCH --job-name=convert_full

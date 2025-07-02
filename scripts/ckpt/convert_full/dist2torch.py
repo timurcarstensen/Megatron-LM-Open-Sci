@@ -49,6 +49,17 @@ def main():
     pretrain_cmd_dict["--ckpt-convert-save"] = torch_chpt_path
     pretrain_cmd_dict["--ckpt-step"] = int(train_iters.lstrip("0"))
 
+    keys = list(pretrain_cmd_dict.keys())
+    for key in keys:
+        if "wandb" in key:
+            del pretrain_cmd_dict[key]
+
+    if "--log-throughput" in pretrain_cmd_dict.keys():
+        del pretrain_cmd_dict["--log-throughput"]
+
+    if "--log-progress" in pretrain_cmd_dict.keys():
+        del pretrain_cmd_dict["--log-progress"]
+
     if "--ffn-hidden-size" not in pretrain_cmd_dict:
         pretrain_cmd_dict["--ffn-hidden-size"] = int(ffn_hidden_size.strip())
 
